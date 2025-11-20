@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Play, StopCircle, Plus } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useExperiment } from "@/lib/useExperiment";
 import { AgentNotebook } from "./Notebook/AgentNotebook";
 import { ResearchPaper } from "./Notebook/ResearchPaper";
@@ -55,6 +57,20 @@ export function LabNotebook() {
       
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col overflow-hidden relative">
+
+        {/* Sticky Header for Active Research */}
+        {orchestrator.timeline.length > 0 && (
+            <div className="absolute top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-xl border-b border-white/5 animate-in fade-in slide-in-from-top-4 duration-500">
+                <div className="max-w-5xl mx-auto px-8 py-4 flex items-center gap-4">
+                    <span className="text-[10px] font-medium text-[#424245] uppercase tracking-widest shrink-0">
+                        Objective
+                    </span>
+                    <p className="text-sm font-light text-[#e5e5e5] truncate">
+                        {task}
+                    </p>
+                </div>
+            </div>
+        )}
         
         {/* Scrollable Timeline */}
         <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -135,9 +151,11 @@ export function LabNotebook() {
                                     <span className="block text-[10px] font-medium text-[#424245] uppercase tracking-widest mb-3">
                                         Orchestrator
                                     </span>
-                                    <p className="text-xl md:text-2xl font-light text-[#d1d1d6] leading-relaxed whitespace-pre-wrap">
-                                        {item.content}
-                                    </p>
+                                    <div className="prose prose-invert prose-lg md:prose-xl max-w-none prose-p:text-[#d1d1d6] prose-p:font-light prose-p:leading-relaxed prose-strong:text-white prose-headings:text-white prose-code:text-[#d1d1d6] prose-pre:bg-[#1d1d1f] prose-pre:border prose-pre:border-[#333]">
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                            {item.content}
+                                        </ReactMarkdown>
+                                    </div>
                                 </div>
                             </div>
                         );
@@ -147,7 +165,7 @@ export function LabNotebook() {
                                 <div className="flex items-center gap-3">
                                     <div className="h-[1px] w-8 bg-[#333]" />
                                     <span className="text-[10px] font-medium text-[#424245] uppercase tracking-widest">
-                                        Parallel Execution
+                                        Sub-Agents Deployed
                                     </span>
                                     <div className="h-[1px] flex-1 bg-[#333]" />
                                 </div>
