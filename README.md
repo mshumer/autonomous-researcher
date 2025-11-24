@@ -45,5 +45,16 @@ Dry run:
 python main.py "Sanity check the pipeline" --mode orchestrator --test-mode
 ```
 
+## Deploy to Railway
+One-click deploy to Railway:
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/new?template=https://github.com/mattshumer/ai-researcher)
+
+Or manually:
+1. Fork this repo
+2. Create a new Railway project from GitHub
+3. Add environment variables: `GOOGLE_API_KEY` or `ANTHROPIC_API_KEY`, plus `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`
+4. Deploy — Railway will build the frontend and start the API automatically
+
 ## Status/Contribution
 This is a super-early, experimental harness. There are a number of improvements to be worked out (i.e. dataset sharing between agents, key management, etc.), literature search, that would make this way more capable. If anyone wants to add these in, feel free!

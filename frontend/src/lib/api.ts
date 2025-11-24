@@ -1,10 +1,23 @@
-export const API_BASE_URL = "http://localhost:8000";
+// In production (Railway), the API is served from the same origin
+// In development, we use localhost:8000
+export const API_BASE_URL = import.meta.env.DEV ? "http://localhost:8000" : "";
+
+// LocalStorage key for user credentials
+const CREDENTIALS_STORAGE_KEY = "ai_researcher_credentials";
+
+export interface UserCredentials {
+    google_api_key?: string;
+    anthropic_api_key?: string;
+    modal_token_id?: string;
+    modal_token_secret?: string;
+}
 
 export interface SingleExperimentRequest {
     task: string;
     gpu?: string;
     model?: string;
     test_mode?: boolean;
+    credentials?: UserCredentials;
 }
 
 export interface OrchestratorExperimentRequest {
@@ -15,6 +28,7 @@ export interface OrchestratorExperimentRequest {
     max_rounds: number;
     max_parallel: number;
     test_mode?: boolean;
+    credentials?: UserCredentials;
 }
 
 export type ExperimentRequest =
@@ -66,6 +80,49 @@ export interface CredentialUpdatePayload {
     modalTokenSecret?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Local credential storage (browser localStorage)
+// ---------------------------------------------------------------------------
+
+export function getStoredCredentials(): UserCredentials {
+    try {
+        const stored = localStorage.getItem(CREDENTIALS_STORAGE_KEY);
+        if (stored) {
+            return JSON.parse(stored);
+        }
+    } catch (e) {
+        console.warn("Failed to read stored credentials:", e);
+    }
+    return {};
+}
+
+export function storeCredentials(creds: CredentialUpdatePayload): void {
+    const toStore: UserCredentials = {
+        google_api_key: creds.googleApiKey,
+        anthropic_api_key: creds.anthropicApiKey,
+        modal_token_id: creds.modalTokenId,
+        modal_token_secret: creds.modalTokenSecret,
+    };
+    // Only store non-empty values
+    const filtered = Object.fromEntries(
+        Object.entries(toStore).filter(([, v]) => v && v.trim())
+    );
+    localStorage.setItem(CREDENTIALS_STORAGE_KEY, JSON.stringify(filtered));
+}
+
+export function getLocalCredentialStatus(): CredentialStatus {
+    const creds = getStoredCredentials();
+    return {
+        hasGoogleApiKey: Boolean(creds.google_api_key?.trim()),
+        hasAnthropicApiKey: Boolean(creds.anthropic_api_key?.trim()),
+        hasModalToken: Boolean(creds.modal_token_id?.trim() && creds.modal_token_secret?.trim()),
+    };
+}
+
+// ---------------------------------------------------------------------------
+// API functions
+// ---------------------------------------------------------------------------
+
 export async function streamExperiment(
     endpoint: "/api/experiments/single/stream" | "/api/experiments/orchestrator/stream",
     payload: ExperimentRequest,
@@ -74,12 +131,16 @@ export async function streamExperiment(
     onComplete: () => void
 ) {
     try {
+        // Attach stored credentials to the request
+        const credentials = getStoredCredentials();
+        const payloadWithCreds = { ...payload, credentials };
+
         const response = await fetch(`${API_BASE_URL}${endpoint}`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
             },
-            body: JSON.stringify(payload),
+            body: JSON.stringify(payloadWithCreds),
         });
 
         if (!response.ok) {
@@ -135,40 +196,32 @@ export async function summarizeAgent(payload: AgentSummaryRequest): Promise<Agen
 }
 
 export async function fetchCredentialStatus(): Promise<CredentialStatus> {
-    const response = await fetch(`${API_BASE_URL}/api/credentials/status`);
-    if (!response.ok) {
-        throw new Error(`Credential check failed: ${response.status} ${response.statusText}`);
+    // In multi-user mode, we check localStorage instead of server
+    // Server credentials are only used as fallback
+    const localStatus = getLocalCredentialStatus();
+
+    // Also check server for fallback (e.g., if server has env vars set)
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/credentials/status`);
+        if (response.ok) {
+            const data = await response.json();
+            return {
+                hasGoogleApiKey: localStatus.hasGoogleApiKey || Boolean(data.has_google_api_key),
+                hasAnthropicApiKey: localStatus.hasAnthropicApiKey || Boolean(data.has_anthropic_api_key),
+                hasModalToken: localStatus.hasModalToken || Boolean(data.has_modal_token),
+            };
+        }
+    } catch {
+        // Server check failed, just use local status
     }
 
-    const data = await response.json();
-    return {
-        hasGoogleApiKey: Boolean(data.has_google_api_key),
-        hasAnthropicApiKey: Boolean(data.has_anthropic_api_key),
-        hasModalToken: Boolean(data.has_modal_token),
-    };
+    return localStatus;
 }
 
 export async function saveCredentials(payload: CredentialUpdatePayload): Promise<CredentialStatus> {
-    const response = await fetch(`${API_BASE_URL}/api/credentials`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            google_api_key: payload.googleApiKey,
-            anthropic_api_key: payload.anthropicApiKey,
-            modal_token_id: payload.modalTokenId,
-            modal_token_secret: payload.modalTokenSecret,
-        }),
-    });
+    // Store credentials locally in the browser
+    storeCredentials(payload);
 
-    if (!response.ok) {
-        const detail = await response.text();
-        throw new Error(`Unable to save credentials: ${response.status} ${response.statusText} - ${detail}`);
-    }
-
-    const data = await response.json();
-    return {
-        hasGoogleApiKey: Boolean(data.has_google_api_key),
-        hasAnthropicApiKey: Boolean(data.has_anthropic_api_key),
-        hasModalToken: Boolean(data.has_modal_token),
-    };
+    // Return the new status based on what we just stored + what was already there
+    return fetchCredentialStatus();
 }

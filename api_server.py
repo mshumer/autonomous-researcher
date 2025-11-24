@@ -13,7 +13,8 @@ from typing import Any, Dict, List, Optional, Literal
 
 from dotenv import load_dotenv, set_key
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 # Load environment variables from the repo's .env file so spawned processes inherit them.
@@ -35,6 +36,14 @@ def strip_ansi(text: str) -> str:
     retaining the original coloured output for advanced terminals.
     """
     return ANSI_ESCAPE_RE.sub("", text)
+
+
+class UserCredentials(BaseModel):
+    """API credentials passed per-request for multi-user deployments."""
+    google_api_key: Optional[str] = Field(None, description="Google AI Studio API key")
+    anthropic_api_key: Optional[str] = Field(None, description="Anthropic API key")
+    modal_token_id: Optional[str] = Field(None, description="Modal token ID")
+    modal_token_secret: Optional[str] = Field(None, description="Modal token secret")
 
 
 class SingleExperimentRequest(BaseModel):
@@ -75,6 +84,10 @@ class SingleExperimentRequest(BaseModel):
     test_mode: bool = Field(
         False,
         description="If true, runs in test mode with mock data (no LLM/GPU usage).",
+    )
+    credentials: Optional[UserCredentials] = Field(
+        None,
+        description="User-provided API credentials. If not provided, falls back to server environment.",
     )
 
 
@@ -145,6 +158,10 @@ class OrchestratorExperimentRequest(BaseModel):
     test_mode: bool = Field(
         False,
         description="If true, runs in test mode with mock data (no LLM/GPU usage).",
+    )
+    credentials: Optional[UserCredentials] = Field(
+        None,
+        description="User-provided API credentials. If not provided, falls back to server environment.",
     )
 
 
@@ -291,13 +308,17 @@ from fastapi.middleware.cors import CORSMiddleware
 # Optional, lightweight summarizer (kept outside agent logic)
 from insights import summarize_agent_findings
 
+# For Railway/production: allow all origins, or be more specific
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve frontend static files in production
+FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
 
 def _env_value_present(value: Optional[str]) -> bool:
     """Treat empty or placeholder values as missing."""
@@ -470,6 +491,7 @@ def _stream_subprocess(
     cmd: List[str],
     *,
     meta: Dict[str, Any],
+    credentials: Optional[UserCredentials] = None,
 ) -> StreamingResponse:
     """
     Stream stdout/stderr from `main.py` as newline-delimited JSON (NDJSON).
@@ -502,6 +524,17 @@ def _stream_subprocess(
     # can consume ::EVENT::-prefixed messages.
     env = dict(os.environ)
     env["AI_RESEARCHER_ENABLE_EVENTS"] = "1"
+
+    # Override with user-provided credentials if present
+    if credentials:
+        if credentials.google_api_key:
+            env["GOOGLE_API_KEY"] = credentials.google_api_key
+        if credentials.anthropic_api_key:
+            env["ANTHROPIC_API_KEY"] = credentials.anthropic_api_key
+        if credentials.modal_token_id:
+            env["MODAL_TOKEN_ID"] = credentials.modal_token_id
+        if credentials.modal_token_secret:
+            env["MODAL_TOKEN_SECRET"] = credentials.modal_token_secret
 
     proc = subprocess.Popen(
         cmd,
@@ -702,7 +735,7 @@ def stream_single_experiment(req: SingleExperimentRequest) -> StreamingResponse:
         "gpu": req.gpu,
         "command": cmd,
     }
-    return _stream_subprocess(cmd, meta=meta)
+    return _stream_subprocess(cmd, meta=meta, credentials=req.credentials)
 
 
 @app.post(
@@ -725,7 +758,7 @@ def stream_orchestrator_experiment(
         "gpu": req.gpu,
         "command": cmd,
     }
-    return _stream_subprocess(cmd, meta=meta)
+    return _stream_subprocess(cmd, meta=meta, credentials=req.credentials)
 
 
 @app.post(
@@ -744,15 +777,47 @@ def summarize_agent(req: AgentSummaryRequest) -> AgentSummaryResponse:
     return AgentSummaryResponse(**result)
 
 
+# ---------------------------------------------------------------------------
+# Static file serving for production (Railway, etc.)
+# ---------------------------------------------------------------------------
+# Mount static assets if the frontend dist folder exists
+if FRONTEND_DIST.exists() and (FRONTEND_DIST / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="static-assets")
+
+
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    """
+    Catch-all route to serve the frontend SPA.
+    API routes are defined above, so they take precedence.
+    """
+    # If frontend dist exists, serve it
+    if FRONTEND_DIST.exists():
+        # Check if the requested file exists
+        file_path = FRONTEND_DIST / full_path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(file_path)
+        # Otherwise serve index.html for SPA routing
+        index_path = FRONTEND_DIST / "index.html"
+        if index_path.exists():
+            return FileResponse(index_path)
+
+    # Fallback: return a simple message if no frontend
+    return {"message": "AI Researcher API is running. Frontend not built.", "docs": "/docs"}
+
+
 if __name__ == "__main__":
     # Convenience entrypoint so you can run:
     #   python api_server.py
     # during development instead of calling uvicorn manually.
     import uvicorn
 
+    port = int(os.environ.get("PORT", 8000))
+    reload_enabled = os.environ.get("RAILWAY_ENVIRONMENT") is None  # Disable reload in production
+
     uvicorn.run(
         "api_server:app",
         host="0.0.0.0",
-        port=8000,
-        reload=True,
+        port=port,
+        reload=reload_enabled,
     )
