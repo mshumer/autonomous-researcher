@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Loader2, FileText, Folder, Image, Download, ChevronRight, Home, ArrowUp } from "lucide-react";
+import { X, Loader2, FileText, Folder, Image, Download, ChevronRight, Home, ArrowUp, RefreshCw } from "lucide-react";
 import { FileItem, listFiles, readFile, getDownloadUrl, getZipDownloadUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -50,27 +50,31 @@ export function ArtifactsBrowser({ isOpen, onClose }: ArtifactsBrowserProps) {
     handleNavigate(newPath);
   };
 
+  const fetchFileContent = async (file: FileItem) => {
+    setLoadingContent(true);
+    setFileContent(null);
+
+    // Check if text or image
+    const isImage = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(file.name);
+
+    if (!isImage) {
+      try {
+        const { content } = await readFile(file.path);
+        setFileContent(content);
+      } catch (err) {
+         // Binary file or error
+         setFileContent(null);
+      }
+    }
+    setLoadingContent(false);
+  };
+
   const handleFileClick = async (file: FileItem) => {
     if (file.type === "directory") {
       handleNavigate(file.path);
     } else {
       setSelectedFile(file);
-      setLoadingContent(true);
-      setFileContent(null);
-
-      // Check if text or image
-      const isImage = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(file.name);
-
-      if (!isImage) {
-        try {
-          const { content } = await readFile(file.path);
-          setFileContent(content);
-        } catch (err) {
-           // Binary file or error
-           setFileContent(null);
-        }
-      }
-      setLoadingContent(false);
+      fetchFileContent(file);
     }
   };
 
@@ -109,13 +113,23 @@ export function ArtifactsBrowser({ isOpen, onClose }: ArtifactsBrowserProps) {
             <div className={cn("flex-col border-r border-[#333] bg-[#151516] overflow-y-auto w-full", selectedFile ? "w-1/3 flex" : "w-full flex")}>
                 {/* Toolbar */}
                 <div className="flex items-center justify-between p-3 border-b border-[#333] sticky top-0 bg-[#151516] z-10">
-                    <button
-                        onClick={handleUp}
-                        disabled={currentPath === "."}
-                        className="p-2 text-[#86868b] hover:text-white hover:bg-[#333] rounded-md disabled:opacity-30 disabled:hover:bg-transparent"
-                    >
-                        <ArrowUp className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={handleUp}
+                            disabled={currentPath === "."}
+                            className="p-2 text-[#86868b] hover:text-white hover:bg-[#333] rounded-md disabled:opacity-30 disabled:hover:bg-transparent"
+                            title="Go Up"
+                        >
+                            <ArrowUp className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => loadFiles(currentPath)}
+                            className="p-2 text-[#86868b] hover:text-white hover:bg-[#333] rounded-md"
+                            title="Refresh"
+                        >
+                            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+                        </button>
+                    </div>
                     <a
                         href={getZipDownloadUrl(currentPath)}
                         className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium bg-[#333] hover:bg-[#444] text-white rounded-md transition-colors"
@@ -178,14 +192,23 @@ export function ArtifactsBrowser({ isOpen, onClose }: ArtifactsBrowserProps) {
                             )}
                             <span className="font-medium text-white truncate">{selectedFile.name}</span>
                         </div>
-                        <a
-                            href={getDownloadUrl(selectedFile.path)}
-                            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium bg-white text-black hover:bg-[#e5e5e5] rounded-md transition-colors"
-                            download
-                        >
-                            <Download className="w-3 h-3" />
-                            Download
-                        </a>
+                        <div className="flex items-center gap-2">
+                             <button
+                                onClick={() => fetchFileContent(selectedFile)}
+                                className="p-2 text-[#86868b] hover:text-white hover:bg-[#333] rounded-md"
+                                title="Refresh Content"
+                            >
+                                <RefreshCw className={cn("w-4 h-4", loadingContent && "animate-spin")} />
+                            </button>
+                            <a
+                                href={getDownloadUrl(selectedFile.path)}
+                                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium bg-white text-black hover:bg-[#e5e5e5] rounded-md transition-colors"
+                                download
+                            >
+                                <Download className="w-3 h-3" />
+                                Download
+                            </a>
+                        </div>
                     </div>
 
                     <div className="flex-1 overflow-auto p-6 relative">

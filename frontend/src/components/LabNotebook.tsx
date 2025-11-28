@@ -172,7 +172,7 @@ export function LabNotebook() {
   return (
     <div className="flex h-screen w-full bg-black font-sans text-[#f5f5f7] selection:bg-[#333] selection:text-white">
       {/* Fixed Header Buttons - Top Right */}
-      <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
+      <div className="fixed top-4 right-4 z-[60] flex items-center gap-2">
         <button
           onClick={() => setShowArtifacts(true)}
           className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#1d1d1f] border border-[#333] text-[#86868b] hover:text-white hover:border-[#555] transition-all duration-300"
