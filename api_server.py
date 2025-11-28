@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Literal
 
 from dotenv import load_dotenv, set_key
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -781,6 +781,134 @@ def summarize_agent(req: AgentSummaryRequest) -> AgentSummaryResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
     return AgentSummaryResponse(**result)
+
+
+@app.get("/api/files/list", summary="List files in a directory")
+def list_files(path: str = ".") -> List[Dict[str, Any]]:
+    """
+    List files and directories in the given path relative to the project root.
+    """
+    # Security check: ensure path resolves to inside BASE_DIR
+    # We strip any leading slashes/dots to prevent traversing up from root initially
+    clean_path = path.strip("/")
+    if clean_path == "." or clean_path == "":
+        target_path = BASE_DIR
+    else:
+        target_path = (BASE_DIR / clean_path).resolve()
+
+    if not str(target_path).startswith(str(BASE_DIR)):
+         raise HTTPException(status_code=403, detail="Access denied: Cannot traverse outside project root.")
+
+    if not target_path.exists():
+        raise HTTPException(status_code=404, detail="Path not found.")
+
+    if not target_path.is_dir():
+         raise HTTPException(status_code=400, detail="Path is not a directory.")
+
+    results = []
+    try:
+        for item in target_path.iterdir():
+            # Skip hidden files/dirs and .git, and __pycache__
+            if item.name.startswith(".") or item.name == "__pycache__":
+                continue
+
+            stats = item.stat()
+            results.append({
+                "name": item.name,
+                "path": str(item.relative_to(BASE_DIR)).replace("\\", "/"),
+                "type": "directory" if item.is_dir() else "file",
+                "size": stats.st_size,
+                "modified": datetime.fromtimestamp(stats.st_mtime, timezone.utc).isoformat(),
+            })
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Permission denied.")
+
+    # Sort: directories first, then files
+    results.sort(key=lambda x: (x["type"] != "directory", x["name"].lower()))
+    return results
+
+
+@app.get("/api/files/read", summary="Read a file content")
+def read_file(path: str) -> Dict[str, str]:
+    """
+    Read the content of a text file.
+    """
+    clean_path = path.strip("/")
+    target_path = (BASE_DIR / clean_path).resolve()
+
+    if not str(target_path).startswith(str(BASE_DIR)):
+         raise HTTPException(status_code=403, detail="Access denied.")
+
+    if not target_path.exists() or not target_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found.")
+
+    try:
+        content = target_path.read_text(encoding="utf-8")
+        return {"content": content}
+    except UnicodeDecodeError:
+         raise HTTPException(status_code=400, detail="Binary file not supported for text view.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/files/download", summary="Download a file")
+def download_file(path: str):
+    """
+    Download a single file.
+    """
+    clean_path = path.strip("/")
+    target_path = (BASE_DIR / clean_path).resolve()
+
+    if not str(target_path).startswith(str(BASE_DIR)):
+         raise HTTPException(status_code=403, detail="Access denied.")
+
+    if not target_path.exists() or not target_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found.")
+
+    return FileResponse(target_path, filename=target_path.name)
+
+
+@app.get("/api/files/download_zip", summary="Download directory as zip")
+def download_zip(path: str = "."):
+    """
+    Download a directory as a zip file.
+    """
+    clean_path = path.strip("/")
+    if clean_path == "." or clean_path == "":
+        target_path = BASE_DIR
+    else:
+        target_path = (BASE_DIR / clean_path).resolve()
+
+    if not str(target_path).startswith(str(BASE_DIR)):
+         raise HTTPException(status_code=403, detail="Access denied.")
+
+    if not target_path.exists() or not target_path.is_dir():
+         raise HTTPException(status_code=404, detail="Directory not found.")
+
+    # Create a zip file in memory
+    import io
+    import zipfile
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for root, dirs, files in os.walk(target_path):
+            # exclude hidden folders
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d != "__pycache__" and d != "node_modules"]
+
+            for file in files:
+                if file.startswith("."):
+                    continue
+                file_path = Path(root) / file
+                arcname = file_path.relative_to(target_path)
+                zip_file.write(file_path, arcname)
+
+    zip_buffer.seek(0)
+    filename = target_path.name if (path != "." and path != "") else "project"
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={filename}.zip"}
+    )
 
 
 # ---------------------------------------------------------------------------
