@@ -51,6 +51,16 @@ def _clean_transcript_for_llm(transcript: str) -> str:
     return "\n".join(cleaned_lines)
 
 
+def _save_final_paper(content: str) -> None:
+    """Save the final paper to the run directory."""
+    if _run_dir:
+        try:
+            with open(_run_dir / "final_paper.md", "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception as e:
+            logger.error(f"Failed to save final paper: {e}")
+
+
 def emit_event(event_type: str, data: Dict[str, Any]) -> None:
     """Emit a structured event for the frontend."""
     # Only emit structured events when explicitly enabled (e.g. via the web API).
@@ -715,6 +725,7 @@ def _run_claude_orchestrator_loop(
                 final_content = "\n\n".join(t for t in text_content if t)
                 display_content = final_content.replace("[DONE]", "").strip()
                 if display_content:
+                    _save_final_paper(display_content)
                     print_panel(display_content, "Final Paper", "bold green")
                     log_step("ORCH_FINAL", "Final paper generated (in loop).")
                     emit_event("ORCH_PAPER", {"content": display_content})
@@ -904,12 +915,7 @@ def _run_claude_orchestrator_loop(
 
         final_paper = "\n\n".join(t for t in final_text if t)
 
-        if _run_dir:
-            try:
-                with open(_run_dir / "final_paper.md", "w", encoding="utf-8") as f:
-                    f.write(final_paper)
-            except Exception as e:
-                logger.error(f"Failed to save final paper: {e}")
+        _save_final_paper(final_paper)
 
         print_panel(final_paper, "Final Paper", "bold green")
         log_step("ORCH_FINAL", "Final paper generated.")
@@ -1113,6 +1119,7 @@ def _run_gemini_orchestrator_loop(
                 display_content = final_content.replace("[DONE]", "").strip()
                 
                 if display_content:
+                    _save_final_paper(display_content)
                     print_panel(display_content, "Final Paper", "bold green")
                     log_step("ORCH_FINAL", "Final paper generated (in loop).")
                     emit_event("ORCH_PAPER", {"content": display_content})
@@ -1271,12 +1278,7 @@ def _run_gemini_orchestrator_loop(
              if part.text and not getattr(part, "thought", False):
                  final_text += part.text
                  
-        if _run_dir:
-            try:
-                with open(_run_dir / "final_paper.md", "w", encoding="utf-8") as f:
-                    f.write(final_text)
-            except Exception as e:
-                logger.error(f"Failed to save final paper: {e}")
+        _save_final_paper(final_text)
 
         print_panel(final_text, "Final Paper", "bold green")
         log_step("ORCH_FINAL", "Final paper generated.")
