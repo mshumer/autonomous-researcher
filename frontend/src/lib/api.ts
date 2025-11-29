@@ -225,3 +225,40 @@ export async function saveCredentials(payload: CredentialUpdatePayload): Promise
     // Return the new status based on what we just stored + what was already there
     return fetchCredentialStatus();
 }
+
+// ---------------------------------------------------------------------------
+// File API
+// ---------------------------------------------------------------------------
+
+export interface FileItem {
+    name: string;
+    path: string;
+    type: "directory" | "file";
+    size: number;
+    modified: string;
+}
+
+export async function listFiles(path: string = "."): Promise<FileItem[]> {
+    const response = await fetch(`${API_BASE_URL}/api/files/list?path=${encodeURIComponent(path)}`);
+    if (!response.ok) {
+        throw new Error(`Failed to list files: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+export async function readFile(path: string): Promise<{ content: string }> {
+    const response = await fetch(`${API_BASE_URL}/api/files/read?path=${encodeURIComponent(path)}`);
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || `Failed to read file: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+export function getDownloadUrl(path: string): string {
+    return `${API_BASE_URL}/api/files/download?path=${encodeURIComponent(path)}`;
+}
+
+export function getZipDownloadUrl(path: string): string {
+    return `${API_BASE_URL}/api/files/download_zip?path=${encodeURIComponent(path)}`;
+}

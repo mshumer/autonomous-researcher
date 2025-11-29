@@ -1,0 +1,17 @@
+INFO:     Will watch for changes in these directories: ['/app']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [8444] using StatReload
+INFO:     Started server process [8592]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:41720 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41734 - "GET /api/credentials/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41736 - "GET /api/credentials/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41736 - "GET /api/files/list?path=. HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41736 - "GET /api/files/list?path=frontend HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41736 - "GET /api/files/read?path=frontend%2Fpackage.json HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [8592]
+INFO:     Stopping reloader process [8444]
