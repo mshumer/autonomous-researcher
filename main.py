@@ -1,10 +1,13 @@
 import os
 import sys
 import argparse
+import json
+from datetime import datetime
+from pathlib import Path
 from dotenv import load_dotenv
 
 from agent import run_experiment_loop
-from logger import print_status
+from logger import print_status, set_log_file
 
 
 def main():
@@ -31,6 +34,12 @@ def main():
             "In 'single' mode: the hypothesis to verify.\n"
             "In 'orchestrator' mode: the high-level research task to investigate."
         ),
+    )
+    parser.add_argument(
+        "--run-dir",
+        type=str,
+        default=None,
+        help="Directory to store run artifacts (agent.log, final paper, etc.).",
     )
     parser.add_argument(
         "--gpu",
@@ -88,6 +97,30 @@ def main():
 
     args = parser.parse_args()
 
+    # Determine/Create Run Directory
+    if args.run_dir:
+        run_dir = Path(args.run_dir)
+        # If passed by parent process, assume created. If not, create it.
+        run_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        # Generate new run directory for top-level process
+        task_slug = "".join(x for x in args.task if x.isalnum() or x in " -_").strip().replace(" ", "_")[:50]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Change naming convention to <task>_<timestamp> as requested
+        run_dir = Path("runs") / f"{task_slug}_{timestamp}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+    # Configure Logger to write to this run directory
+    set_log_file(run_dir / "agent.log")
+
+    # Save metadata for top-level runs
+    if not args.run_dir:
+        try:
+            with open(run_dir / "metadata.json", "w") as f:
+                json.dump(vars(args), f, indent=2, default=str)
+        except Exception as e:
+            print(f"[WARNING] Failed to save metadata: {e}", file=sys.stderr)
+
     # Preserve existing behavior by default: single agent mode.
     if args.mode == "single":
         print_status("Initializing Single Researcher Agent...", "bold cyan")
@@ -122,6 +155,7 @@ def main():
                 max_parallel_experiments=args.max_parallel,
                 test_mode=args.test_mode,
                 model=args.model,
+                run_dir=run_dir,
             )
         except KeyboardInterrupt:
             print_status("\nOrchestrated experiment interrupted by user.", "bold red")

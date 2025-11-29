@@ -36,6 +36,13 @@ def setup_logging():
 # Global file logger instance
 logger = setup_logging()
 
+def set_log_file(path):
+    """Adds a file handler to the global logger."""
+    file_handler = logging.FileHandler(path)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    logger.addHandler(file_handler)
+
 def log_step(step_name, status="INFO"):
     """Logs a step to the file."""
     logger.info(f"[{step_name}] {status}")
