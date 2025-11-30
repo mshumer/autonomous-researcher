@@ -4,6 +4,7 @@ import json
 import subprocess
 import threading
 import re
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Dict, Any
 
@@ -18,6 +19,7 @@ from logger import print_panel, print_status, log_step, logger
 # Global orchestrator state
 _default_gpu: Optional[str] = None
 _default_model: str = "gemini-3-pro-preview"
+_run_dir: Optional[Path] = None
 _experiment_counter: int = 0
 
 # Regex for stripping ANSI escape sequences (Rich colour codes, etc.).
@@ -47,6 +49,16 @@ def _clean_transcript_for_llm(transcript: str) -> str:
             continue
         cleaned_lines.append(line)
     return "\n".join(cleaned_lines)
+
+
+def _save_final_paper(content: str) -> None:
+    """Save the final paper to the run directory."""
+    if _run_dir:
+        try:
+            with open(_run_dir / "final_paper.md", "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception as e:
+            logger.error(f"Failed to save final paper: {e}")
 
 
 def emit_event(event_type: str, data: Dict[str, Any]) -> None:
@@ -287,6 +299,10 @@ def run_researcher(hypothesis: str, gpu: Optional[str] = None, test_mode: bool =
     if test_mode:
         cmd.append("--test-mode")
 
+    # Pass the run directory to the subprocess so it logs to the same place
+    if _run_dir:
+        cmd.extend(["--run-dir", str(_run_dir)])
+
     print_status(
         f"[Experiment {experiment_id}] Spawning single-agent process with command: "
         f"{' '.join(cmd)}",
@@ -366,6 +382,16 @@ def run_researcher(hypothesis: str, gpu: Optional[str] = None, test_mode: bool =
     # UI-only event lines, while leaving CLI / UI behavior untouched.
     llm_transcript = _clean_transcript_for_llm(transcript)
 
+    # Save transcript to file if run_dir is set
+    if _run_dir:
+        try:
+            agents_dir = _run_dir / "agents"
+            agents_dir.mkdir(parents=True, exist_ok=True)
+            with open(agents_dir / f"agent_{experiment_id}.txt", "w", encoding="utf-8") as f:
+                f.write(transcript)
+        except Exception as e:
+            logger.error(f"Failed to save transcript for agent {experiment_id}: {e}")
+
     result: Dict[str, Any] = {
         "experiment_id": experiment_id,
         "hypothesis": hypothesis,
@@ -406,6 +432,7 @@ def run_orchestrator_loop(
     max_parallel_experiments: int = 2,
     test_mode: bool = False,
     model: str = "gemini-3-pro-preview",
+    run_dir: Optional[Path] = None,
 ) -> None:
     """
     Main orchestrator loop using Gemini 3 Pro or Claude Opus 4.5 with thinking + manual tool calling.
@@ -419,10 +446,12 @@ def run_orchestrator_loop(
                                   in a single wave of tool calls.
         test_mode: If True, runs in test mode with mock data.
         model: LLM model to use ("gemini-3-pro-preview" or "claude-opus-4-5").
+        run_dir: Directory to save artifacts.
     """
-    global _default_gpu, _default_model
+    global _default_gpu, _default_model, _run_dir
     _default_gpu = default_gpu
     _default_model = model
+    _run_dir = run_dir
 
     print_panel(
         f"Research Task:\n{research_task}",
@@ -514,6 +543,14 @@ def run_orchestrator_loop(
             "Method X is recommended.\n\n"
             "[DONE]"
         )
+
+        if _run_dir:
+            try:
+                with open(_run_dir / "final_paper.md", "w", encoding="utf-8") as f:
+                    f.write(final_paper)
+            except Exception as e:
+                logger.error(f"Failed to save final paper (test mode): {e}")
+
         print_panel(final_paper, "Final Paper", "bold green")
         log_step("ORCH_FINAL", "Final paper generated.")
         emit_event("ORCH_PAPER", {"content": final_paper})
@@ -688,6 +725,7 @@ def _run_claude_orchestrator_loop(
                 final_content = "\n\n".join(t for t in text_content if t)
                 display_content = final_content.replace("[DONE]", "").strip()
                 if display_content:
+                    _save_final_paper(display_content)
                     print_panel(display_content, "Final Paper", "bold green")
                     log_step("ORCH_FINAL", "Final paper generated (in loop).")
                     emit_event("ORCH_PAPER", {"content": display_content})
@@ -876,6 +914,9 @@ def _run_claude_orchestrator_loop(
                                         final_text[-1] += delta.text
 
         final_paper = "\n\n".join(t for t in final_text if t)
+
+        _save_final_paper(final_paper)
+
         print_panel(final_paper, "Final Paper", "bold green")
         log_step("ORCH_FINAL", "Final paper generated.")
         emit_event("ORCH_PAPER", {"content": final_paper})
@@ -1078,6 +1119,7 @@ def _run_gemini_orchestrator_loop(
                 display_content = final_content.replace("[DONE]", "").strip()
                 
                 if display_content:
+                    _save_final_paper(display_content)
                     print_panel(display_content, "Final Paper", "bold green")
                     log_step("ORCH_FINAL", "Final paper generated (in loop).")
                     emit_event("ORCH_PAPER", {"content": display_content})
@@ -1236,6 +1278,8 @@ def _run_gemini_orchestrator_loop(
              if part.text and not getattr(part, "thought", False):
                  final_text += part.text
                  
+        _save_final_paper(final_text)
+
         print_panel(final_text, "Final Paper", "bold green")
         log_step("ORCH_FINAL", "Final paper generated.")
         emit_event("ORCH_PAPER", {"content": final_text})

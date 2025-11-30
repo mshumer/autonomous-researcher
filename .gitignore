@@ -1,0 +1,28 @@
+# ignored files
+.env
+__pycache__/
+
+# === Logs ===
+*.log
+
+# === Runtime artifacts ===
+run/
+
+# === Python cache ===
+__pycache__/
+*.py[cod]   # for compiled files
+
+# === Environment variables ===
+.env
+.env.local
+
+# === Virtual environments (optional) ===
+venv/
+env/
+.venv/
+
+# === IDE / editor files (optional but common) ===
+.idea/
+.vscode/
+*.swp
+*.swo
